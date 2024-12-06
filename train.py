@@ -18,6 +18,7 @@ import sys
 import time
 from typing import Optional, OrderedDict
 from zipfile import ZipFile, is_zipfile
+from datetime import datetime
 
 import torch
 from cog import BaseModel, Input, Path, Secret  # pyright: ignore
@@ -73,7 +74,7 @@ class CustomSDTrainer(SDTrainer):
             lora_path = sorted(JOB_DIR.glob("*.safetensors"))[-1]
         if self.wandb:
             print(f"Saving weights to W&B: {lora_path.name}")
-            self.wandb.save_weights(lora_path)
+            #self.wandb.save_weights(lora_path)
 
 
 class CustomJob(BaseJob):
@@ -205,7 +206,8 @@ def train(
     ),
 ) -> TrainingOutput:
     clean_up()
-    output_path = "/tmp/trained_model.tar"
+
+    output_path = f"{wandb_run}/trained_model.tar"
 
     if skip_training_and_use_pretrained_hf_lora_url is not None:
         download_huggingface_lora(
@@ -228,6 +230,9 @@ def train(
     if wandb_sample_prompts:
         sample_prompts = [p.strip() for p in wandb_sample_prompts.split("\n")]
 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    JOB_NAME = f"{wandb_run}_{timestamp}"
+    
     train_config = OrderedDict(
         {
             "job": "custom_job",
@@ -249,7 +254,7 @@ def train(
                             "save_every": (
                                 wandb_save_interval if wandb_api_key else steps + 1
                             ),
-                            "max_step_saves_to_keep": 1,
+                            "max_step_saves_to_keep": 50,
                         },
                         "datasets": [
                             {
@@ -359,18 +364,14 @@ def train(
 
     job.cleanup()
 
-    lora_file = JOB_DIR / f"{JOB_NAME}.safetensors"
-    lora_file.rename(JOB_DIR / "lora.safetensors")
-
-    samples_dir = JOB_DIR / "samples"
-    if samples_dir.exists():
-        shutil.rmtree(samples_dir)
 
     # Remove any intermediate lora paths
+    '''
     lora_paths = JOB_DIR.glob("*.safetensors")
     for path in lora_paths:
         if path.name != "lora.safetensors":
             path.unlink()
+    '''
 
     # Optimizer is used to continue training, not needed in output
     optimizer_file = JOB_DIR / "optimizer.pt"
@@ -383,8 +384,6 @@ def train(
     captions_dir.mkdir(exist_ok=True)
     for caption_file in INPUT_DIR.glob("*.txt"):
         shutil.copy(caption_file, captions_dir)
-
-    os.system(f"tar -cvf {output_path} {JOB_DIR}")
 
     if hf_token is not None and hf_repo_id is not None:
         if captions_dir.exists():
@@ -471,8 +470,8 @@ def clean_up():
     if INPUT_DIR.exists():
         shutil.rmtree(INPUT_DIR)
 
-    if OUTPUT_DIR.exists():
-        shutil.rmtree(OUTPUT_DIR)
+    #if OUTPUT_DIR.exists():
+        #shutil.rmtree(OUTPUT_DIR)
 
 
 def download_huggingface_lora(hf_lora_url: str, output_path: str):
